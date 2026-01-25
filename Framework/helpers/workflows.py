@@ -83,10 +83,13 @@ async def trigger_github_workflow_async(links: dict, device_name: str, device_co
     if not features_str:
         features_str = "disable_signature_verification"
 
+    # Sanitize api_level to integer string
+    api_level_clean = str(int(float(api_level))) if api_level else api_level
+
     data = {
         "ref": "master",
         "inputs": {
-            "api_level": api_level,
+            "api_level": api_level_clean,
             "device_name": device_name,
             "device_codename": device_codename,
             "version_name": version_name,
