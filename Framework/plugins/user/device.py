@@ -172,8 +172,8 @@ async def handle_text_input(bot: Client, message: Message):
                 )
                 return
 
-            # Store Android version as string to match existing format
-            android_version = str(android_float)
+            # Store Android version as string (sanitize to integer)
+            android_version = str(android_int)
             api_level = android_version_to_api_level(android_version)
 
             user_states[user_id]["android_version"] = android_version
@@ -497,9 +497,9 @@ async def version_selection_handler(bot: Client, query: CallbackQuery):
         # Get API level
         api_level = android_version_to_api_level(android_version)
 
-        # Store version info
+        # Store version info (sanitize to integer)
         user_states[user_id]["version_name"] = version_name
-        user_states[user_id]["android_version"] = android_version
+        user_states[user_id]["android_version"] = str(android_int)
         user_states[user_id]["api_level"] = api_level
         user_states[user_id]["state"] = STATE_WAITING_FOR_FEATURES
 
