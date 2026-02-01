@@ -208,15 +208,15 @@ def search_devices(query: str, limit: int = 10) -> List[Dict[str, str]]:
 
 def get_device_software(codename: str) -> Optional[Dict[str, Any]]:
     """Get software versions for a device with full ROM metadata."""
-    # Extract base codename (first part before underscore)
-    base_codename = codename.split('_')[0]
-
-    device_name = _cache["codename_to_name"].get(codename) or _cache["codename_to_name"].get(base_codename)
-    if not device_name:
+    device_info = get_device_by_codename(codename)
+    if not device_info:
         return None
 
-    firmware_versions = _cache["firmware_data"].get(base_codename, [])
-    miui_roms_raw = _cache["miui_data"].get(base_codename, [])
+    device_name = device_info["name"]
+    normalized = normalize_codename(codename)
+
+    firmware_versions = _cache["firmware_data"].get(normalized, [])
+    miui_roms_raw = _cache["miui_data"].get(normalized, [])
     
     miui_roms = [
         {
