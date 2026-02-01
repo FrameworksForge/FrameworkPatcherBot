@@ -171,7 +171,22 @@ def get_all_devices() -> List[Dict[str, str]]:
 
 def get_device_by_codename(codename: str) -> Optional[Dict[str, str]]:
     """Get device information by codename."""
+    # Check main device list first
     name = _cache["codename_to_name"].get(codename)
+    if not name:
+        # Try base codename
+        base = normalize_codename(codename)
+        name = _cache["codename_to_name"].get(base)
+    
+    if not name:
+        # Fallback to names in ROM data if available
+        roms = _cache["miui_data"].get(normalize_codename(codename), [])
+        if roms:
+            name = roms[0].get("name")
+            # Clean up name if it contains regional suffix (e.g. "Redmi Note 13 Taiwan" -> "Redmi Note 13")
+            if name:
+                name = name.split(" Global")[0].split(" China")[0].split(" India")[0].split(" Russia")[0].split(" EEA")[0].split(" Taiwan")[0].split(" Turkey")[0].strip()
+
     if name:
         return {"name": name, "codename": codename}
     return None
@@ -265,21 +280,38 @@ def android_version_to_api_level(android_version: str) -> str:
 
 def is_codename_valid(codename: str) -> bool:
     """Check if a codename is valid."""
-    base_codename = codename.split('_')[0]
-    return base_codename in _cache["codename_to_name"]
+    base = normalize_codename(codename)
+    return (
+        base in _cache["codename_to_name"] or 
+        base in _cache["miui_data"] or 
+        base in _cache["firmware_data"]
+    )
 
 
 def get_similar_codenames(codename: str, limit: int = 5) -> List[str]:
     """Get similar codenames for suggestions when user enters invalid codename."""
     codename = codename.lower()
-    all_codenames = list(_cache["codename_to_name"].keys())
-
-    # Find codenames that start with the same letters
+    
+    # Combine all known codenames from all sources
+    all_codenames = set(_cache["codename_to_name"].keys())
+    all_codenames.update(_cache["miui_data"].keys())
+    all_codenames.update(_cache["firmware_data"].keys())
+    
+    # Find codenames that start with the same letters or contain the query
     similar = []
-    for cn in all_codenames:
-        if cn.startswith(codename[:2]):
+    # Priority 1: Starts with
+    for cn in sorted(all_codenames):
+        if cn.startswith(codename):
             similar.append(cn)
             if len(similar) >= limit:
                 break
+                
+    # Priority 2: Contains (if not enough results)
+    if len(similar) < limit:
+        for cn in sorted(all_codenames):
+            if cn not in similar and codename in cn:
+                similar.append(cn)
+                if len(similar) >= limit:
+                    break
 
     return similar
