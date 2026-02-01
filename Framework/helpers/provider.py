@@ -96,6 +96,21 @@ async def load_yaml_list_data(client: httpx.AsyncClient, url: str, cache_key: st
         LOGGER.error(f"Error fetching {name}: {e}")
 
 
+def normalize_codename(codename: str) -> str:
+    """Normalize codename by removing regional/variant suffixes.
+    
+    Examples:
+        - sapphiren -> sapphire (NFC variant)
+        - alioth_global -> alioth (regional variant)
+    """
+    base = codename.split('_')[0]
+    
+    if base.endswith('n') and len(base) > 2:
+        return base[:-1]
+    
+    return base
+
+
 async def load_firmware_data(client: httpx.AsyncClient):
     """Load firmware version data."""
     try:
@@ -132,7 +147,9 @@ async def load_miui_roms_data(client: httpx.AsyncClient):
         latest = {}
         for item in roms:
             try:
-                codename = item['codename'].split('_')[0]
+                raw_codename = item['codename']
+                codename = normalize_codename(raw_codename)
+                
                 if latest.get(codename):
                     latest[codename].append(item)
                 else:
@@ -175,7 +192,7 @@ def search_devices(query: str, limit: int = 10) -> List[Dict[str, str]]:
 
 
 def get_device_software(codename: str) -> Optional[Dict[str, Any]]:
-    """Get software versions for a device."""
+    """Get software versions for a device with full ROM metadata."""
     # Extract base codename (first part before underscore)
     base_codename = codename.split('_')[0]
 
@@ -184,7 +201,23 @@ def get_device_software(codename: str) -> Optional[Dict[str, Any]]:
         return None
 
     firmware_versions = _cache["firmware_data"].get(base_codename, [])
-    miui_roms = _cache["miui_data"].get(base_codename, [])
+    miui_roms_raw = _cache["miui_data"].get(base_codename, [])
+    
+    miui_roms = [
+        {
+            "version": rom.get("version"),
+            "miui": rom.get("miui"),
+            "android": rom.get("android"),
+            "branch": rom.get("branch"),
+            "method": rom.get("method"),
+            "name": rom.get("name"),
+            "date": rom.get("date"),
+            "size": rom.get("size"),
+            "link": rom.get("link"),
+            "codename": rom.get("codename")
+        }
+        for rom in miui_roms_raw
+    ]
 
     return {
         "name": device_name,
