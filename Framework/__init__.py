@@ -38,3 +38,5 @@ bot = CustomClient(
     sleep_threshold=15,
     max_concurrent_transmissions=10,
 )
+
+OWNER_ID = int(config.OWNER_ID) if config.OWNER_ID else None
