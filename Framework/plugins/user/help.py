@@ -1,7 +1,7 @@
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, CallbackQuery
 
-from Framework import bot
+from Framework import bot, OWNER_ID
 from Framework.helpers.decorators import owner
 
 USER_COMMANDS = """
@@ -32,10 +32,15 @@ async def help_command_handler(client: Client, message: Message):
     text += USER_COMMANDS
     
     # Check if user is owner
-    from Framework import OWNER_ID
     if message.from_user.id == OWNER_ID:
         text += f"\n{OWNER_COMMANDS}"
     
     text += "\n\n**Find more information here:**\n• [GitHub Organization](https://github.com/FrameworksForge)"
     
     await message.reply_text(text, quote=True, disable_web_page_preview=True)
+
+@bot.on_callback_query(filters.regex(r"^help$"))
+async def help_callback(client: Client, query: CallbackQuery):
+    """Handles callback for the help button."""
+    await help_command_handler(client, query.message)
+    await query.answer()

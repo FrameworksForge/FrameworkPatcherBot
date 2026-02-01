@@ -64,6 +64,13 @@ async def start_patch_command(bot: Client, message: Message):
     )
 
 
+@bot.on_callback_query(filters.regex(r"^start_patch$"))
+async def start_patch_callback(client: Client, query: CallbackQuery):
+    """Handles callback for the start_patch button."""
+    await start_patch_command(client, query.message)
+    await query.answer()
+
+
 @bot.on_callback_query(filters.regex(r"^reselect_codename$"))
 async def reselect_codename_handler(bot: Client, query: CallbackQuery):
     """Handles reselecting device codename."""
