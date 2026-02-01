@@ -99,8 +99,8 @@ async def check_for_updates():
             LOGGER.error("git status failed")
             return None
         if "Your branch is behind" in status_out:
-            rc, count_out, _ = await _run_cmd("git", "rev-list", "--count", "HEAD..origin/master")
-            rc2, latest_msg, _ = await _run_cmd("git", "log", "-1", "--pretty=format:%s", "origin/master")
+            rc, count_out, _ = await _run_cmd("git", "rev-list", "--count", "HEAD..origin/main")
+            rc2, latest_msg, _ = await _run_cmd("git", "log", "-1", "--pretty=format:%s", "origin/main")
             return {
                 "updates_available": True,
                 "commits_behind": (count_out or "0").strip(),
@@ -113,7 +113,7 @@ async def check_for_updates():
 
 async def pull_updates(msg=None):
     try:
-        rc, out, err = await _run_cmd("git", "pull", "--ff-only", "origin", "master")
+        rc, out, err = await _run_cmd("git", "pull", "--ff-only", "origin", "main")
         if rc != 0:
             error = (err or out or "").strip()
             if msg:

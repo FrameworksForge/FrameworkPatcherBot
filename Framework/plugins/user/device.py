@@ -24,7 +24,7 @@ def get_id(text: str) -> str | None:
 @bot.on_message(
     filters.private
     & filters.text
-    & ~filters.command(["start", "start_patch", "cancel", "update", "sh", "ping", "status"]),
+    & ~filters.command(["start", "start_patch", "cancel", "update", "restart", "logs", "logfile", "clearlogs", "deploy", "sh", "ping", "status"]),
     group=1
 )
 async def handle_text_input(bot: Client, message: Message):
