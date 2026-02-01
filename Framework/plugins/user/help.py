@@ -36,4 +36,6 @@ async def help_command_handler(client: Client, message: Message):
     if message.from_user.id == OWNER_ID:
         text += f"\n{OWNER_COMMANDS}"
     
-    await message.reply_text(text, quote=True)
+    text += "\n\n**Find more information here:**\n• [GitHub Organization](https://github.com/FrameworksForge)"
+    
+    await message.reply_text(text, quote=True, disable_web_page_preview=True)
