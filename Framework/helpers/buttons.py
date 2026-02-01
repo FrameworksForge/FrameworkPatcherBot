@@ -3,7 +3,8 @@ from pyrogram.types import InlineKeyboardButton
 
 
 START_TEXT = """Hello {},
-Ready to patch some frameworks?\nSend `/start_patch` to begin the patching process.
+Ready to patch some frameworks?
+Send /start_patch to begin the patching process.
 
 The bot supports Android 13-16 with automated version detection based on device codename and ROM version."""
 
