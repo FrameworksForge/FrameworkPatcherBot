@@ -2,24 +2,12 @@ from pyrogram import filters, Client
 from pyrogram.types import CallbackQuery
 
 from Framework import bot
-from Framework.helpers.pd_utils import *
+
 from Framework.helpers.provider import *
 from Framework.helpers.workflows import *
 
 
-def get_id(text: str) -> str | None:
-    """Extracts PixelDrain ID from a URL or raw ID."""
-    if text.startswith("http"):
-        if text.endswith("/"):
-            id_part = text.split("/")[-2]
-        else:
-            id_part = text.split("/")[-1]
-        if len(id_part) > 5 and all(c.isalnum() or c == '-' for c in id_part):
-            return id_part
-        return None
-    elif "/" not in text and len(text) > 5:
-        return text
-    return None
+
 
 @bot.on_message(
     filters.private
@@ -346,25 +334,10 @@ async def handle_text_input(bot: Client, message: Message):
                 )
 
     elif current_state == STATE_NONE:
-        try:
-            file_id = get_id(message.text)
-            if message.text.strip().startswith("/sh"):
-                # Ignore /sh commands here; they are handled by the shell handler
-                return
-            if file_id:
-                info_message = await message.reply_text(
-                    text="`Processing...`",
-                    quote=True,
-                    disable_web_page_preview=True
-                )
-                await send_data(file_id, info_message)
-            else:
-                await message.reply_text(
-                    "I'm not sure what to do with that. Please use `/start_patch` or send a valid PixelDrain link/ID.",
-                    quote=True)
-        except Exception as e:
-            LOGGER.error(f"Error processing PixelDrain info request: {e}", exc_info=True)
-            await message.reply_text(f"An error occurred while fetching PixelDrain info: `{e}`", quote=True)
+        await message.reply_text(
+            "Please use /start_patch to begin the patching process.",
+            quote=True
+        )
     else:
         await message.reply_text("I'm currently expecting files or specific text input. Use /cancel to restart.",
                                  quote=True)
