@@ -1,5 +1,5 @@
 from pyrogram import filters, Client
-from pyrogram.types import CallbackQuery
+from pyrogram.types import CallbackQuery, Message
 
 from Framework import bot
 

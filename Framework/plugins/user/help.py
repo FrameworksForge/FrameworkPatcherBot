@@ -1,8 +1,9 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message, CallbackQuery
 
-from Framework import bot, OWNER_ID
+from Framework import bot
 from Framework.helpers.decorators import owner
+from Framework.helpers.owner_id import OWNER_ID
 
 USER_COMMANDS = """
 **User Commands:**
@@ -25,22 +26,26 @@ OWNER_COMMANDS = """
 • /deploy - Run deployment script
 """
 
-@bot.on_message(filters.private & filters.command("help"))
-async def help_command_handler(client: Client, message: Message):
-    """Handles the /help command and lists available commands."""
+def _get_help_text(user_id: int) -> str:
     text = "**Available Commands**\n"
     text += USER_COMMANDS
     
     # Check if user is owner
-    if message.from_user.id == OWNER_ID:
+    if user_id in OWNER_ID:
         text += f"\n{OWNER_COMMANDS}"
     
     text += "\n\n**Find more information here:**\n• [GitHub Organization](https://github.com/FrameworksForge)"
-    
+    return text
+
+@bot.on_message(filters.private & filters.command("help"))
+async def help_command_handler(client: Client, message: Message):
+    """Handles the /help command and lists available commands."""
+    text = _get_help_text(message.from_user.id)
     await message.reply_text(text, quote=True, disable_web_page_preview=True)
 
 @bot.on_callback_query(filters.regex(r"^help$"))
 async def help_callback(client: Client, query: CallbackQuery):
     """Handles callback for the help button."""
-    await help_command_handler(client, query.message)
+    text = _get_help_text(query.from_user.id)
+    await query.message.edit_text(text, disable_web_page_preview=True)
     await query.answer()
