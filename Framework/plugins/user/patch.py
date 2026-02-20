@@ -35,9 +35,9 @@ def get_required_jars(features: dict) -> set:
 
 
 @bot.on_message(filters.private & filters.command("start_patch"))
-async def start_patch_command(bot: Client, message: Message):
+async def start_patch_command(bot: Client, message: Message, user_id: int = None):
     """Initiates the framework patching conversation."""
-    user_id = message.from_user.id
+    user_id = user_id or message.from_user.id
     # Initialize state and prompt for device codename
     user_states[user_id] = {
         "state": STATE_WAITING_FOR_DEVICE_CODENAME,
@@ -56,18 +56,21 @@ async def start_patch_command(bot: Client, message: Message):
             "enable_kaorios_toolbox": False
         }
     }
-    await message.reply_text(
-        "🚀 Let's start the framework patching process!\n\n"
-        "📱 Please enter your device codename (e.g., rothko, xaga, marble)\n\n"
-        "💡 Tip: You can also search by device name if you don't know the codename.",
-        quote=True,
+    await bot.send_message(
+        chat_id=message.chat.id,
+        text=(
+            "🚀 Let's start the framework patching process!\n\n"
+            "📱 Please enter your device codename (e.g., rothko, xaga, marble)\n\n"
+            "💡 Tip: You can also search by device name if you don't know the codename."
+        ),
+        reply_to_message_id=message.id if message.from_user.id == user_id else None
     )
 
 
 @bot.on_callback_query(filters.regex(r"^start_patch$"))
 async def start_patch_callback(client: Client, query: CallbackQuery):
     """Handles callback for the start_patch button."""
-    await start_patch_command(client, query.message)
+    await start_patch_command(client, query.message, user_id=query.from_user.id)
     await query.answer()
 
 
