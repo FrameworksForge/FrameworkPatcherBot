@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 
 import httpx
 from pyrogram import Client, filters
@@ -10,6 +11,78 @@ from Framework.helpers.decorators import owner
 from Framework.helpers.logger import LOGGER
 from Framework.helpers.state import *
 from Framework.plugins.user.patch import get_required_jars
+
+
+async def _track_workflow_and_notify(
+    bot: Client,
+    chat_id: int,
+    user_id: int,
+    device_name: str,
+    version_name: str,
+    android_version: str,
+    api_level: str,
+    features_summary: str,
+    workflow_id: str,
+    dispatch_time: str,
+):
+    """Track a dispatched workflow and notify user on terminal state."""
+    from Framework.helpers.workflows import track_dispatched_workflow
+
+    try:
+        result = await track_dispatched_workflow(workflow_id, dispatch_time)
+        run_url = result.get("run_url") or f"https://github.com/{config.GITHUB_OWNER}/{config.GITHUB_REPO}/actions/workflows/{workflow_id}"
+
+        state = result.get("state")
+        conclusion = result.get("conclusion")
+
+        if state == "completed" and conclusion == "success":
+            await bot.send_message(
+                chat_id,
+                (
+                    "✅ **Build completed successfully!**\n\n"
+                    f"📱 **Device:** {device_name}\n"
+                    f"📦 **Version:** {version_name}\n"
+                    f"🤖 **Android:** {android_version} (API {api_level})\n\n"
+                    "You should receive the module/release notification shortly.\n"
+                    f"🔗 **Workflow run:** {run_url}"
+                ),
+            )
+        elif state == "completed":
+            await bot.send_message(
+                chat_id,
+                (
+                    "❌ **Build failed.**\n\n"
+                    f"📱 **Device:** {device_name}\n"
+                    f"📦 **Version:** {version_name}\n"
+                    f"🤖 **Android:** {android_version} (API {api_level})\n\n"
+                    f"**Features:**\n{features_summary}\n\n"
+                    f"🔗 **Workflow run:** {run_url}\n"
+                    "Please open the run logs and retry if needed."
+                ),
+            )
+        else:
+            await bot.send_message(
+                chat_id,
+                (
+                    "⚠️ **Build status could not be confirmed automatically.**\n\n"
+                    f"📱 **Device:** {device_name}\n"
+                    f"📦 **Version:** {version_name}\n"
+                    f"🤖 **Android:** {android_version} (API {api_level})\n\n"
+                    f"🔗 **Check workflow status:** {run_url}"
+                ),
+            )
+    except Exception as e:
+        LOGGER.error("Workflow tracking failed for user %s: %s", user_id, e, exc_info=True)
+        await bot.send_message(
+            chat_id,
+            (
+                "⚠️ **Unable to track build status automatically.**\n"
+                f"You can check workflow progress here:\n"
+                f"https://github.com/{config.GITHUB_OWNER}/{config.GITHUB_REPO}/actions/workflows/{workflow_id}"
+            ),
+        )
+    finally:
+        release_active_build_slot(user_id)
 
 
 @bot.on_message(filters.command("pdup") & filters.group & filters.reply)
@@ -178,7 +251,6 @@ async def handle_media_upload(bot: Client, message: Message):
         if received_count == total_required:
             # All files received, now trigger the workflow
             from Framework.helpers.workflows import trigger_github_workflow_async
-            from datetime import datetime
             from Framework.helpers.state import user_rate_limits
 
             await message.reply_text(
@@ -201,6 +273,15 @@ async def handle_media_upload(bot: Client, message: Message):
                     user_states.pop(user_id, None)
                     return
 
+                # Global active build cap check.
+                if user_id not in active_build_jobs and len(active_build_jobs) >= config.GLOBAL_ACTIVE_BUILDS_LIMIT:
+                    await message.reply_text(
+                        "❌ Build queue is currently full. Please try again in a few minutes.",
+                        quote=True,
+                    )
+                    user_states.pop(user_id, None)
+                    return
+
                 # Get all required info from state
                 device_name = user_states[user_id]["device_name"]
                 device_codename = user_states[user_id]["device_codename"]
@@ -214,10 +295,25 @@ async def handle_media_upload(bot: Client, message: Message):
                 })
 
                 links = user_states[user_id]["files"]
+                reserve_active_build_slot(
+                    user_id,
+                    {
+                        "device_name": device_name,
+                        "version_name": version_name,
+                        "api_level": api_level,
+                    },
+                )
+
                 # Trigger workflow
-                status = await trigger_github_workflow_async(links, device_name, device_codename, version_name,
-                                                             api_level, user_id,
-                                                             features)
+                dispatch = await trigger_github_workflow_async(
+                    links,
+                    device_name,
+                    device_codename,
+                    version_name,
+                    api_level,
+                    user_id,
+                    features,
+                )
                 triggers.append(datetime.now())
                 user_rate_limits[user_id] = triggers
 
@@ -234,19 +330,40 @@ async def handle_media_upload(bot: Client, message: Message):
 
                 features_summary = "\n".join(selected_features) if selected_features else "Default features"
 
+                workflow_id = dispatch.get("workflow_id")
+                dispatch_time = dispatch.get("dispatch_time")
+                workflow_page_url = dispatch.get("workflow_page_url")
+
+                asyncio.create_task(
+                    _track_workflow_and_notify(
+                        bot=bot,
+                        chat_id=message.chat.id,
+                        user_id=user_id,
+                        device_name=device_name,
+                        version_name=version_name,
+                        android_version=android_version,
+                        api_level=api_level,
+                        features_summary=features_summary,
+                        workflow_id=workflow_id,
+                        dispatch_time=dispatch_time,
+                    )
+                )
+
                 await message.reply_text(
                     f"✅ **Workflow triggered successfully!**\n\n"
                     f"📱 **Device:** {device_name}\n"
                     f"📦 **Version:** {version_name}\n"
                     f"🤖 **Android:** {android_version} (API {api_level})\n\n"
                     f"**Features Applied:**\n{features_summary}\n\n"
-                    f"⏳ You will receive a notification when the process is complete.\n\n"
+                    f"⏳ You will receive a notification when the process is complete.\n"
+                    f"🔗 Workflow page: {workflow_page_url}\n\n"
                     f"Daily triggers used: {len(triggers)}/3",
                     quote=True
                 )
 
             except Exception as e:
                 LOGGER.error(f"Error triggering workflow for user {user_id}: {e}", exc_info=True)
+                release_active_build_slot(user_id)
                 await message.reply_text(
                     f"❌ **An unexpected error occurred while triggering workflow:**\n\n`{e}`",
                     quote=True

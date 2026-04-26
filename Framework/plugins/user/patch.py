@@ -183,11 +183,19 @@ async def features_done_handler(bot: Client, query: CallbackQuery):
     
     # Build JAR list message
     jar_list = "\n".join([f"• {jar}" for jar in sorted(required_jars)])
+    android_version = str(user_states[user_id].get("android_version", ""))
+    legacy_notice = ""
+    if android_version in {"13", "14"}:
+        legacy_notice = (
+            "\n\n⚠️ Legacy notice: Android 13/14 builds are still runnable, "
+            "but platform rollout priority is lower than Android 15/16."
+        )
     
     user_states[user_id]["state"] = STATE_WAITING_FOR_FILES
     await query.message.edit_text(
         f"✅ Features selected:\n\n{features_text}\n\n"
         f"📦 **Required JAR files ({len(required_jars)}):**\n{jar_list}\n\n"
         "Please send the JAR files listed above."
+        f"{legacy_notice}"
     )
     await query.answer("Features confirmed!")

@@ -1,9 +1,157 @@
 import asyncio
+from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 
 from Framework.helpers.logger import LOGGER
 from config import *
+
+
+FEATURE_FLAG_SIGNATURE = "disable_signature_verification"
+FEATURE_FLAG_CN_NOTIF = "cn_notification_fix"
+FEATURE_FLAG_SECURE = "disable_secure_flag"
+FEATURE_FLAG_KAORIOS = "kaorios_toolbox"
+FEATURE_FLAG_GBOARD = "add_gboard"
+
+
+def _parse_iso8601(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _normalize_api_level(api_level: str) -> str:
+    api_str = str(api_level).strip() if api_level is not None else ""
+
+    if api_str in {"13", "14", "15", "16"} or (
+        api_str.replace(".", "", 1).isdigit() and int(float(api_str)) in {13, 14, 15, 16}
+    ):
+        try:
+            from Framework.helpers.provider import android_version_to_api_level
+            return android_version_to_api_level(api_str)
+        except Exception:
+            mapping = {"13": "33", "14": "34", "15": "35", "16": "36"}
+            return mapping.get(api_str, api_str)
+
+    return str(int(float(api_str))) if api_str else api_str
+
+
+def _feature_list_from_flags(features: dict | None = None) -> list[str]:
+    features = features or {
+        "enable_signature_bypass": True,
+        "enable_cn_notification_fix": False,
+        "enable_disable_secure_flag": False,
+        "enable_kaorios_toolbox": False,
+    }
+
+    feature_list: list[str] = []
+    if features.get("enable_signature_bypass", True):
+        feature_list.append(FEATURE_FLAG_SIGNATURE)
+    if features.get("enable_cn_notification_fix", False):
+        feature_list.append(FEATURE_FLAG_CN_NOTIF)
+    if features.get("enable_disable_secure_flag", False):
+        feature_list.append(FEATURE_FLAG_SECURE)
+    if features.get("enable_kaorios_toolbox", False):
+        feature_list.append(FEATURE_FLAG_KAORIOS)
+
+    if not feature_list:
+        feature_list.append(FEATURE_FLAG_SIGNATURE)
+
+    return feature_list
+
+
+def _allowed_features_for_api(api_level: str) -> set[str]:
+    if api_level in {"35", "36"}:
+        return {
+            FEATURE_FLAG_SIGNATURE,
+            FEATURE_FLAG_CN_NOTIF,
+            FEATURE_FLAG_SECURE,
+            FEATURE_FLAG_KAORIOS,
+            FEATURE_FLAG_GBOARD,
+        }
+
+    return {
+        FEATURE_FLAG_SIGNATURE,
+        FEATURE_FLAG_KAORIOS,
+        FEATURE_FLAG_GBOARD,
+    }
+
+
+def _required_inputs_for_features(feature_list: list[str]) -> set[str]:
+    required = set()
+    for feature in feature_list:
+        if feature == FEATURE_FLAG_SIGNATURE:
+            required.update({"framework_url", "services_url", "miui_services_url"})
+        elif feature == FEATURE_FLAG_KAORIOS:
+            required.add("framework_url")
+        elif feature == FEATURE_FLAG_CN_NOTIF:
+            required.add("miui_services_url")
+        elif feature == FEATURE_FLAG_SECURE:
+            required.update({"services_url", "miui_services_url"})
+        elif feature == FEATURE_FLAG_GBOARD:
+            required.update({"miui_services_url", "miui_framework_url"})
+    return required
+
+
+def _build_workflow_inputs(
+    links: dict,
+    device_name: str,
+    device_codename: str,
+    version_name: str,
+    api_level: str,
+    user_id: int,
+    feature_list: list[str],
+) -> dict[str, str]:
+    inputs = {
+        "api_level": api_level,
+        "device_name": device_name,
+        "device_codename": device_codename,
+        "version_name": version_name,
+        "user_id": str(user_id),
+        "features": ",".join(feature_list),
+    }
+
+    url_mapping = {
+        "framework.jar": "framework_url",
+        "services.jar": "services_url",
+        "miui-services.jar": "miui_services_url",
+        "miui-framework.jar": "miui_framework_url",
+    }
+    for jar_name, input_key in url_mapping.items():
+        url = links.get(jar_name)
+        if url:
+            inputs[input_key] = url
+
+    return inputs
+
+
+def _validate_dispatch_inputs(api_level: str, feature_list: list[str], inputs: dict[str, str]) -> None:
+    unsupported = set(feature_list) - _allowed_features_for_api(api_level)
+    if unsupported:
+        raise ValueError(
+            f"Unsupported features for API {api_level}: {', '.join(sorted(unsupported))}"
+        )
+
+    required = _required_inputs_for_features(feature_list)
+    missing = [key for key in sorted(required) if not inputs.get(key)]
+    if missing:
+        raise ValueError(
+            "Missing required input URLs for selected features: " + ", ".join(missing)
+        )
+
+
+def _headers() -> dict[str, str]:
+    if not GITHUB_TOKEN:
+        raise ValueError("GITHUB_TOKEN is not configured")
+
+    return {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "FrameworkPatcherBot/1.0",
+    }
 
 
 def _select_workflow_id(api_level: str) -> str:
@@ -12,19 +160,7 @@ def _select_workflow_id(api_level: str) -> str:
     Accepts either Android version (e.g., '16', 16, '15.0') or API level ('36'..'33').
     Always returns a non-empty workflow file name.
     """
-    # Normalize input
-    api_str = str(api_level).strip() if api_level is not None else ""
-
-    # Convert Android version to API level if needed
-    if api_str in {"13", "14", "15", "16"} or api_str.replace(".", "", 1).isdigit() and int(float(api_str)) in {13, 14,
-                                                                                                                15, 16}:
-        try:
-            from Framework.helpers.provider import android_version_to_api_level
-            api_str = android_version_to_api_level(api_str)
-        except Exception:
-            # Fallback to best effort mapping
-            mapping = {"13": "33", "14": "34", "15": "35", "16": "36"}
-            api_str = mapping.get(api_str, api_str)
+    api_str = _normalize_api_level(api_level)
 
     # Map API levels to workflow files
     if api_str == "36":
@@ -46,72 +182,42 @@ def _select_workflow_id(api_level: str) -> str:
 
 async def trigger_github_workflow_async(links: dict, device_name: str, device_codename: str, version_name: str,
                                         api_level: str,
-                                        user_id: int, features: dict = None) -> int:
-    """Trigger GitHub workflow with improved error handling and retry logic."""
+                                        user_id: int, features: dict = None) -> dict[str, Any]:
+    """Trigger GitHub workflow and return structured dispatch metadata."""
     workflow_id = _select_workflow_id(api_level)
     if not workflow_id:
         LOGGER.error(f"Could not determine workflow ID for API level: {api_level}")
         raise ValueError(f"Could not determine workflow ID for API level: {api_level}")
+
+    api_level_clean = _normalize_api_level(api_level)
+    feature_list = _feature_list_from_flags(features)
+    inputs = _build_workflow_inputs(
+        links=links,
+        device_name=device_name,
+        device_codename=device_codename,
+        version_name=version_name,
+        api_level=api_level_clean,
+        user_id=user_id,
+        feature_list=feature_list,
+    )
+    _validate_dispatch_inputs(api_level_clean, feature_list, inputs)
+
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/actions/workflows/{workflow_id}/dispatches"
+    headers = _headers()
+    data = {"ref": "master", "inputs": inputs}
 
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "FrameworkPatcherBot/1.0"
-    }
-
-    # Default features if not provided
-    if features is None:
-        features = {
-            "enable_signature_bypass": True,
-            "enable_cn_notification_fix": False,
-            "enable_disable_secure_flag": False,
-            "enable_kaorios_toolbox": False
-        }
-
-    feature_list = []
-    if features.get("enable_signature_bypass", True):
-        feature_list.append("disable_signature_verification")
-    if features.get("enable_cn_notification_fix", False):
-        feature_list.append("cn_notification_fix")
-    if features.get("enable_disable_secure_flag", False):
-        feature_list.append("disable_secure_flag")
-    if features.get("enable_kaorios_toolbox", False):
-        feature_list.append("kaorios_toolbox")
-
-    features_str = ",".join(feature_list)
-    if not features_str:
-        features_str = "disable_signature_verification"
-
-    # Sanitize api_level to integer string
-    api_level_clean = str(int(float(api_level))) if api_level else api_level
-
-    data = {
-        "ref": "master",
-        "inputs": {
-            "api_level": api_level_clean,
-            "device_name": device_name,
-            "device_codename": device_codename,
-            "version_name": version_name,
-            "user_id": str(user_id),
-            "features": features_str
-        }
-    }
-    
-    # Only include JAR URLs if they are provided (not empty or None)
-    framework_url = links.get("framework.jar")
-    services_url = links.get("services.jar")
-    miui_services_url = links.get("miui-services.jar")
-    
-    if framework_url:
-        data["inputs"]["framework_url"] = framework_url
-    if services_url:
-        data["inputs"]["services_url"] = services_url
-    if miui_services_url:
-        data["inputs"]["miui_services_url"] = miui_services_url
+    workflow_api_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/actions/workflows/{workflow_id}"
+    dispatch_ts = _now_utc()
 
     LOGGER.info(
-        f"Attempting to dispatch GitHub workflow to {url} for device {device_name} version {version_name} for user {user_id}")
+        "Attempting workflow dispatch: workflow=%s api=%s user=%s device=%s version=%s features=%s",
+        workflow_id,
+        api_level_clean,
+        user_id,
+        device_name,
+        version_name,
+        ",".join(feature_list),
+    )
 
     max_attempts = 3
     base_timeout = 60
@@ -130,11 +236,27 @@ async def trigger_github_workflow_async(links: dict, device_name: str, device_co
                     ),
                     limits=httpx.Limits(max_connections=5, max_keepalive_connections=2)
             ) as client:
+                # Fail fast if workflow id/file is wrong.
+                workflow_resp = await client.get(workflow_api_url, headers=headers)
+                workflow_resp.raise_for_status()
+
                 resp = await client.post(url, json=data, headers=headers)
                 resp.raise_for_status()
 
-                LOGGER.info(f"GitHub workflow triggered successfully on attempt {attempt + 1}")
-                return resp.status_code
+                LOGGER.info(
+                    "Workflow dispatched successfully on attempt %s: workflow=%s user=%s",
+                    attempt + 1,
+                    workflow_id,
+                    user_id,
+                )
+                return {
+                    "status_code": resp.status_code,
+                    "workflow_id": workflow_id,
+                    "api_level": api_level_clean,
+                    "features": feature_list,
+                    "dispatch_time": dispatch_ts.isoformat().replace("+00:00", "Z"),
+                    "workflow_page_url": f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/actions/workflows/{workflow_id}",
+                }
 
         except httpx.TimeoutException as e:
             LOGGER.error(f"GitHub API timeout on attempt {attempt + 1}: {e}")
@@ -176,4 +298,131 @@ async def trigger_github_workflow_async(links: dict, device_name: str, device_co
             await asyncio.sleep(wait_time)
 
     raise Exception("Failed to trigger GitHub workflow after all attempts")
+
+
+async def discover_dispatched_workflow_run(
+    workflow_id: str,
+    dispatch_time_iso: str,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any] | None:
+    """Find the run created from a recent workflow_dispatch call."""
+    timeout_seconds = timeout_seconds or WORKFLOW_RUN_DISCOVERY_TIMEOUT
+    headers = _headers()
+    dispatch_time = _parse_iso8601(dispatch_time_iso)
+    deadline = _now_utc().timestamp() + timeout_seconds
+
+    runs_url = (
+        f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/actions/workflows/{workflow_id}/runs"
+        "?event=workflow_dispatch&branch=master&per_page=20"
+    )
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while _now_utc().timestamp() < deadline:
+            try:
+                resp = await client.get(runs_url, headers=headers)
+                resp.raise_for_status()
+                runs = resp.json().get("workflow_runs", [])
+
+                candidates = []
+                for run in runs:
+                    created_at = run.get("created_at")
+                    if not created_at:
+                        continue
+                    created_dt = _parse_iso8601(created_at)
+                    if created_dt >= dispatch_time:
+                        candidates.append(run)
+
+                if candidates:
+                    candidates.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+                    run = candidates[0]
+                    LOGGER.info(
+                        "Discovered workflow run: workflow=%s run_id=%s html_url=%s",
+                        workflow_id,
+                        run.get("id"),
+                        run.get("html_url"),
+                    )
+                    return run
+            except Exception as e:
+                LOGGER.warning("Run discovery retry due to error: %s", e)
+
+            await asyncio.sleep(5)
+
+    LOGGER.warning("Workflow run discovery timed out: workflow=%s", workflow_id)
+    return None
+
+
+async def poll_workflow_run_until_terminal(
+    run_id: int,
+    timeout_seconds: int | None = None,
+    poll_interval: int | None = None,
+) -> dict[str, Any]:
+    """Poll a run until completed/terminal or timeout."""
+    timeout_seconds = timeout_seconds or WORKFLOW_RUN_POLL_TIMEOUT
+    poll_interval = poll_interval or WORKFLOW_RUN_POLL_INTERVAL
+
+    headers = _headers()
+    run_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/actions/runs/{run_id}"
+    deadline = _now_utc().timestamp() + timeout_seconds
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while _now_utc().timestamp() < deadline:
+            resp = await client.get(run_url, headers=headers)
+            resp.raise_for_status()
+            run = resp.json()
+
+            status = run.get("status")
+            conclusion = run.get("conclusion")
+            LOGGER.info(
+                "Workflow poll: run_id=%s status=%s conclusion=%s",
+                run_id,
+                status,
+                conclusion,
+            )
+
+            if status == "completed":
+                return {
+                    "state": "completed",
+                    "status": status,
+                    "conclusion": conclusion,
+                    "run_id": run.get("id"),
+                    "run_url": run.get("html_url"),
+                }
+
+            await asyncio.sleep(poll_interval)
+
+    return {
+        "state": "timeout",
+        "status": "timed_out",
+        "conclusion": None,
+        "run_id": run_id,
+        "run_url": f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/actions/runs/{run_id}",
+    }
+
+
+async def track_dispatched_workflow(
+    workflow_id: str,
+    dispatch_time_iso: str,
+) -> dict[str, Any]:
+    """Discover and monitor a dispatched workflow until terminal state."""
+    run = await discover_dispatched_workflow_run(workflow_id, dispatch_time_iso)
+    if not run:
+        return {
+            "state": "discovery_timeout",
+            "status": "unknown",
+            "conclusion": None,
+            "run_id": None,
+            "run_url": f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/actions/workflows/{workflow_id}",
+        }
+
+    run_id = run.get("id")
+    if not run_id:
+        return {
+            "state": "discovery_error",
+            "status": "unknown",
+            "conclusion": None,
+            "run_id": None,
+            "run_url": run.get("html_url") or f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/actions/workflows/{workflow_id}",
+        }
+
+    return await poll_workflow_run_until_terminal(int(run_id))
 

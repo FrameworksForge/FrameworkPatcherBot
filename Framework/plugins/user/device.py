@@ -8,6 +8,16 @@ from Framework.helpers.workflows import *
 from Framework.helpers.logger import LOGGER
 
 
+def _legacy_android_warning(android_int: int) -> str:
+    if android_int in {13, 14}:
+        return (
+            "\n\n⚠️ **Legacy Notice**\n"
+            "Android 13/14 is still supported, but treated as legacy in current platform operations.\n"
+            "Builds remain available, but may receive lower rollout priority than Android 15/16."
+        )
+    return ""
+
+
 
 
 @bot.on_message(
@@ -187,7 +197,8 @@ async def handle_text_input(bot: Client, message: Message):
                 f"📱 **Device:** {user_states[user_id]['device_name']} (`{user_states[user_id]['device_codename']}`)\n"
                 f"📦 **ROM Version:** {user_states[user_id]['version_name']}\n"
                 f"🤖 **Android:** {android_version} (API {api_level})\n\n"
-                f"Now, choose which features to apply:",
+                f"Now, choose which features to apply:"
+                f"{_legacy_android_warning(android_int)}",
                 reply_markup=InlineKeyboardMarkup(buttons),
                 quote=True
             )
@@ -267,7 +278,8 @@ async def handle_text_input(bot: Client, message: Message):
                 f"📱 **Device:** {user_states[user_id]['device_name']}\n"
                 f"📦 **Version:** {version_name}\n"
                 f"🤖 **Android:** {android_version} (API {api_level})\n\n"
-                f"Now, choose which features to apply:",
+                f"Now, choose which features to apply:"
+                f"{_legacy_android_warning(android_int)}",
                 reply_markup=InlineKeyboardMarkup(buttons),
                 quote=True
             )
@@ -323,7 +335,8 @@ async def handle_text_input(bot: Client, message: Message):
                     f"📱 **Device:** {user_states[user_id]['device_name']}\n"
                     f"📦 **Version:** {version_name}\n"
                     f"🤖 **Android:** {android_version} (API {api_level})\n\n"
-                    f"Now, choose which features to apply:",
+                    f"Now, choose which features to apply:"
+                    f"{_legacy_android_warning(android_int)}",
                     reply_markup=InlineKeyboardMarkup(buttons),
                     quote=True
                 )
@@ -496,7 +509,8 @@ async def version_selection_handler(bot: Client, query: CallbackQuery):
             f"📱 **Device:** {user_states[user_id]['device_name']}\n"
             f"📦 **Version:** {version_name}\n"
             f"🤖 **Android:** {android_version} (API {api_level})\n\n"
-            f"Now, choose which features to apply:",
+            f"Now, choose which features to apply:"
+            f"{_legacy_android_warning(android_int)}",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
         await query.answer("Version selected!")

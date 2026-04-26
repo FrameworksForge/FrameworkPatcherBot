@@ -52,7 +52,26 @@ GITHUB_TOKEN=your_github_token
 GITHUB_OWNER=FrameworksForge
 GITHUB_REPO=FrameworkPatcher
 PIXELDRAIN_API_KEY=your_pixeldrain_api_key
+
+# Optional workflow file overrides
+GITHUB_WORKFLOW_ID_A13=android13.yml
+GITHUB_WORKFLOW_ID_A14=android14.yml
+GITHUB_WORKFLOW_ID_A15=android15.yml
+GITHUB_WORKFLOW_ID_A16=android16.yml
+
+# Bot queue and tracking tuning
+GLOBAL_ACTIVE_BUILDS_LIMIT=5
+WORKFLOW_RUN_DISCOVERY_TIMEOUT=180
+WORKFLOW_RUN_POLL_TIMEOUT=7200
+WORKFLOW_RUN_POLL_INTERVAL=20
 ```
+
+## Build Tracking Behavior
+
+- After workflow dispatch, the bot now tracks the GitHub Actions run and sends a follow-up notification on success or failure.
+- Failure notifications include a direct workflow run link for debugging.
+- A global active-build cap is enforced to prevent CI overload during spikes.
+- Android 13/14 remain supported and runnable, but are surfaced to users as legacy builds.
 
 ## Credits
 
