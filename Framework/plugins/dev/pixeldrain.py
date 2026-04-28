@@ -217,14 +217,8 @@ async def handle_media_upload(bot: Client, message: Message):
         received_count = len(user_states[user_id]["files"]) + 1  # +1 since current file will be counted
         missing_files = [f for f in required_jars if f not in user_states[user_id]["files"] and f != file_name]
 
-        await message.reply_text(
-            f"Received {file_name}. You have {received_count}/{total_required} files. "
-            f"Remaining: {', '.join(sorted(missing_files)) if missing_files else 'None'}.",
-            quote=True
-        )
-
         await processing_message.edit_text(
-            text=f"`Uploading {file_name} to PixelDrain...`",
+            text=f"`Uploading {file_name} to PixelDrain... ({received_count}/{total_required})`",
             disable_web_page_preview=True
         )
 
@@ -233,7 +227,7 @@ async def handle_media_upload(bot: Client, message: Message):
 
         if "error" in response_data:
             await processing_message.edit_text(
-                text=f"Error uploading {file_name} to PixelDrain: `{response_data['error']}`\n\nLogs:\n" + '\n'.join(
+                text=f"❌ Error uploading {file_name} to PixelDrain: `{response_data['error']}`\n\nLogs:\n" + '\n'.join(
                     logs),
                 disable_web_page_preview=True
             )
@@ -251,10 +245,9 @@ async def handle_media_upload(bot: Client, message: Message):
             from Framework.helpers.workflows import trigger_github_workflow_async
             from Framework.helpers.state import user_rate_limits
 
-            await message.reply_text(
+            await processing_message.edit_text(
                 f"✅ All {total_required} required file(s) received and uploaded!\n\n"
                 "⏳ Triggering GitHub workflow...",
-                quote=True
             )
 
             try:
@@ -264,18 +257,16 @@ async def handle_media_upload(bot: Client, message: Message):
                 triggers = [t for t in triggers if t.date() == today]
 
                 if len(triggers) >= 3:
-                    await message.reply_text(
-                        "❌ You have reached the daily limit of 3 workflow triggers. Try again tomorrow.",
-                        quote=True
+                    await processing_message.edit_text(
+                        "❌ You have reached the daily limit of 3 workflow triggers. Try again tomorrow."
                     )
                     user_states.pop(user_id, None)
                     return
 
                 # Global active build cap check.
                 if user_id not in active_build_jobs and len(active_build_jobs) >= config.GLOBAL_ACTIVE_BUILDS_LIMIT:
-                    await message.reply_text(
-                        "❌ Build queue is currently full. Please try again in a few minutes.",
-                        quote=True,
+                    await processing_message.edit_text(
+                        "❌ Build queue is currently full. Please try again in a few minutes."
                     )
                     user_states.pop(user_id, None)
                     return
@@ -336,7 +327,7 @@ async def handle_media_upload(bot: Client, message: Message):
                     )
                 )
 
-                await message.reply_text(
+                await processing_message.edit_text(
                     f"✅ **Workflow triggered successfully!**\n\n"
                     f"📱 **Device:** {device_name}\n"
                     f"📦 **Version:** {version_name}\n"
@@ -344,25 +335,22 @@ async def handle_media_upload(bot: Client, message: Message):
                     f"**Features Applied:**\n{features_summary}\n\n"
                     f"⏳ You will receive a notification when the process is complete.\n"
                     f"🔗 Workflow page: {workflow_page_url}\n\n"
-                    f"Daily triggers used: {len(triggers)}/3",
-                    quote=True
+                    f"Daily triggers used: {len(triggers)}/3"
                 )
 
             except Exception as e:
                 LOGGER.error(f"Error triggering workflow for user {user_id}: {e}", exc_info=True)
                 release_active_build_slot(user_id)
-                await message.reply_text(
-                    f"❌ **An unexpected error occurred while triggering workflow:**\n\n`{e}`",
-                    quote=True
+                await processing_message.edit_text(
+                    f"❌ **An unexpected error occurred while triggering workflow:**\n\n`{e}`"
                 )
 
             finally:
                 user_states.pop(user_id, None)
         else:
-            await message.reply_text(
-                f"Received {file_name}. You have {received_count}/{total_required} files. "
+            await processing_message.edit_text(
+                f"📥 Received {file_name}. You have {received_count}/{total_required} files.\n"
                 f"Please send the remaining: {', '.join(sorted(missing_files))}.",
-                quote=True
             )
 
     except Exception as error:
