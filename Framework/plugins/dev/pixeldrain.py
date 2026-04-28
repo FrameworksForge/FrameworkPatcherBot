@@ -10,6 +10,7 @@ from Framework import bot
 from Framework.helpers.decorators import owner
 from Framework.helpers.logger import LOGGER
 from Framework.helpers.state import *
+from Framework.helpers.workflows import get_default_feature_state, get_selected_feature_labels
 from Framework.plugins.user.patch import get_required_jars
 
 
@@ -204,10 +205,7 @@ async def handle_media_upload(bot: Client, message: Message):
                 "version_name": None,
                 "api_level": None,
                 "features": {
-                    "enable_signature_bypass": True,
-                    "enable_cn_notification_fix": False,
-                    "enable_disable_secure_flag": False,
-                    "enable_kaorios_toolbox": False
+                    **get_default_feature_state(),
                 },
                 "required_jars": {"framework.jar", "services.jar", "miui-services.jar"}
             }
@@ -289,9 +287,7 @@ async def handle_media_upload(bot: Client, message: Message):
                 api_level = user_states[user_id]["api_level"]
                 android_version = user_states[user_id]["android_version"]
                 features = user_states[user_id].get("features", {
-                    "enable_signature_bypass": True,
-                    "enable_cn_notification_fix": False,
-                    "enable_disable_secure_flag": False
+                    **get_default_feature_state(),
                 })
 
                 links = user_states[user_id]["files"]
@@ -318,16 +314,7 @@ async def handle_media_upload(bot: Client, message: Message):
                 user_rate_limits[user_id] = triggers
 
                 # Build features summary for confirmation
-                selected_features = []
-                if features.get("enable_signature_bypass"):
-                    selected_features.append("✓ Signature Verification Bypass")
-                if features.get("enable_cn_notification_fix"):
-                    selected_features.append("✓ CN Notification Fix")
-                if features.get("enable_disable_secure_flag"):
-                    selected_features.append("✓ Disable Secure Flag")
-                if features.get("enable_kaorios_toolbox"):
-                    selected_features.append("✓ Kaorios Toolbox (Play Integrity Fix)")
-
+                selected_features = get_selected_feature_labels(features)
                 features_summary = "\n".join(selected_features) if selected_features else "Default features"
 
                 workflow_id = dispatch.get("workflow_id")

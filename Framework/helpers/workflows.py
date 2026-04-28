@@ -14,6 +14,49 @@ FEATURE_FLAG_SECURE = "disable_secure_flag"
 FEATURE_FLAG_KAORIOS = "kaorios_toolbox"
 FEATURE_FLAG_GBOARD = "add_gboard"
 
+FEATURE_CATALOG = (
+    {
+        "state_key": "enable_signature_bypass",
+        "flag": FEATURE_FLAG_SIGNATURE,
+        "callback_data": "feature_signature",
+        "button_label": "Disable Signature Verification",
+        "summary_label": "Signature Verification Bypass",
+        "min_api": 33,
+    },
+    {
+        "state_key": "enable_kaorios_toolbox",
+        "flag": FEATURE_FLAG_KAORIOS,
+        "callback_data": "feature_kaorios",
+        "button_label": "Kaorios Toolbox (Play Integrity Fix)",
+        "summary_label": "Kaorios Toolbox (Play Integrity Fix)",
+        "min_api": 33,
+    },
+    {
+        "state_key": "enable_add_gboard",
+        "flag": FEATURE_FLAG_GBOARD,
+        "callback_data": "feature_gboard",
+        "button_label": "Add Gboard Support",
+        "summary_label": "Add Gboard Support",
+        "min_api": 33,
+    },
+    {
+        "state_key": "enable_cn_notification_fix",
+        "flag": FEATURE_FLAG_CN_NOTIF,
+        "callback_data": "feature_cn_notif",
+        "button_label": "CN Notification Fix",
+        "summary_label": "CN Notification Fix",
+        "min_api": 35,
+    },
+    {
+        "state_key": "enable_disable_secure_flag",
+        "flag": FEATURE_FLAG_SECURE,
+        "callback_data": "feature_secure_flag",
+        "button_label": "Disable Secure Flag",
+        "summary_label": "Disable Secure Flag",
+        "min_api": 35,
+    },
+)
+
 
 def _parse_iso8601(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc)
@@ -45,6 +88,7 @@ def _feature_list_from_flags(features: dict | None = None) -> list[str]:
         "enable_cn_notification_fix": False,
         "enable_disable_secure_flag": False,
         "enable_kaorios_toolbox": False,
+        "enable_add_gboard": False,
     }
 
     feature_list: list[str] = []
@@ -56,6 +100,8 @@ def _feature_list_from_flags(features: dict | None = None) -> list[str]:
         feature_list.append(FEATURE_FLAG_SECURE)
     if features.get("enable_kaorios_toolbox", False):
         feature_list.append(FEATURE_FLAG_KAORIOS)
+    if features.get("enable_add_gboard", False):
+        feature_list.append(FEATURE_FLAG_GBOARD)
 
     if not feature_list:
         feature_list.append(FEATURE_FLAG_SIGNATURE)
@@ -63,21 +109,35 @@ def _feature_list_from_flags(features: dict | None = None) -> list[str]:
     return feature_list
 
 
-def _allowed_features_for_api(api_level: str) -> set[str]:
-    if api_level in {"35", "36"}:
-        return {
-            FEATURE_FLAG_SIGNATURE,
-            FEATURE_FLAG_CN_NOTIF,
-            FEATURE_FLAG_SECURE,
-            FEATURE_FLAG_KAORIOS,
-            FEATURE_FLAG_GBOARD,
-        }
+def _normalized_api_int(api_level: str) -> int:
+    try:
+        return int(_normalize_api_level(api_level))
+    except Exception:
+        return 0
 
-    return {
-        FEATURE_FLAG_SIGNATURE,
-        FEATURE_FLAG_KAORIOS,
-        FEATURE_FLAG_GBOARD,
-    }
+
+def get_feature_catalog_for_api(api_level: str) -> list[dict[str, Any]]:
+    api_int = _normalized_api_int(api_level)
+    return [feature for feature in FEATURE_CATALOG if api_int >= feature["min_api"]]
+
+
+def get_default_feature_state() -> dict[str, bool]:
+    return {feature["state_key"]: False for feature in FEATURE_CATALOG}
+
+
+def get_selected_feature_labels(features: dict | None = None) -> list[str]:
+    features = features or {}
+    selected = []
+
+    for feature in FEATURE_CATALOG:
+        if features.get(feature["state_key"], False):
+            selected.append(feature["summary_label"])
+
+    return selected
+
+
+def _allowed_features_for_api(api_level: str) -> set[str]:
+    return {feature["flag"] for feature in get_feature_catalog_for_api(api_level)}
 
 
 def _required_inputs_for_features(feature_list: list[str]) -> set[str]:
