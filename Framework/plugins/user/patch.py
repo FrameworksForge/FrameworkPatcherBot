@@ -3,6 +3,7 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, 
 
 from Framework import bot
 from Framework.helpers.state import *
+from Framework.helpers.workflows import get_default_feature_state, get_feature_catalog_for_api, get_selected_feature_labels
 
 # Feature to JAR requirements mapping
 # Defines which JAR files are required for each feature
@@ -10,7 +11,8 @@ FEATURE_JAR_REQUIREMENTS = {
     "enable_signature_bypass": ["framework.jar", "services.jar", "miui-services.jar"],
     "enable_cn_notification_fix": ["miui-services.jar"],
     "enable_disable_secure_flag": ["services.jar", "miui-services.jar"],
-    "enable_kaorios_toolbox": ["framework.jar"]
+    "enable_kaorios_toolbox": ["framework.jar"],
+    "enable_add_gboard": ["miui-services.jar", "miui-framework.jar"],
 }
 
 
@@ -26,6 +28,8 @@ def get_required_jars(features: dict) -> set:
         required_jars.update(FEATURE_JAR_REQUIREMENTS["enable_disable_secure_flag"])
     if features.get("enable_kaorios_toolbox", False):
         required_jars.update(FEATURE_JAR_REQUIREMENTS["enable_kaorios_toolbox"])
+    if features.get("enable_add_gboard", False):
+        required_jars.update(FEATURE_JAR_REQUIREMENTS["enable_add_gboard"])
     
     # Default to signature bypass if no features selected
     if not required_jars:
@@ -50,10 +54,7 @@ async def start_patch_command(bot: Client, message: Message, user_id: int = None
         "codename_retry_count": 0,
         "software_data": None,
         "features": {
-            "enable_signature_bypass": False,
-            "enable_cn_notification_fix": False,
-            "enable_disable_secure_flag": False,
-            "enable_kaorios_toolbox": False
+            **get_default_feature_state(),
         }
     }
     await bot.send_message(
@@ -96,7 +97,7 @@ async def reselect_codename_handler(bot: Client, query: CallbackQuery):
     await query.answer("Codename reset. Enter a new codename.")
 
 
-@bot.on_callback_query(filters.regex(r"^feature_(signature|cn_notif|secure_flag|kaorios)$"))
+@bot.on_callback_query(filters.regex(r"^feature_(signature|cn_notif|secure_flag|kaorios|gboard)$"))
 async def feature_toggle_handler(bot: Client, query: CallbackQuery):
     """Handles toggling features on/off."""
     user_id = query.from_user.id
@@ -104,44 +105,28 @@ async def feature_toggle_handler(bot: Client, query: CallbackQuery):
         await query.answer("Not expecting feature selection.", show_alert=True)
         return
     
-    feature_map = {
-        "feature_signature": "enable_signature_bypass",
-        "feature_cn_notif": "enable_cn_notification_fix",
-        "feature_secure_flag": "enable_disable_secure_flag",
-        "feature_kaorios": "enable_kaorios_toolbox"
-    }
-    
-    feature_key = feature_map.get(query.data)
+    android_version = user_states[user_id].get("android_version", "15")
+    feature_key = None
+    for feature in get_feature_catalog_for_api(android_version):
+        if feature["callback_data"] == query.data:
+            feature_key = feature["state_key"]
+            break
+
     if feature_key:
         # Toggle feature
         user_states[user_id]["features"][feature_key] = not user_states[user_id]["features"][feature_key]
     
     # Update button display
     features = user_states[user_id]["features"]
-    android_version = user_states[user_id].get("android_version", "15")
-    android_int = int(float(android_version))
-
-    buttons = [
-        [InlineKeyboardButton(
-            f"{'✓' if features['enable_signature_bypass'] else '☐'} Disable Signature Verification",
-            callback_data="feature_signature"
-        )]
-    ]
-
-    # Only show Android 15+ features if Android version is 15 or higher
-    if android_int >= 15:
-        buttons.append([InlineKeyboardButton(
-            f"{'✓' if features['enable_cn_notification_fix'] else '☐'} CN Notification Fix",
-            callback_data="feature_cn_notif"
-        )])
-        buttons.append([InlineKeyboardButton(
-            f"{'✓' if features['enable_disable_secure_flag'] else '☐'} Disable Secure Flag",
-            callback_data="feature_secure_flag"
-        )])
-        buttons.append([InlineKeyboardButton(
-            f"{'✓' if features['enable_kaorios_toolbox'] else '☐'} Kaorios Toolbox",
-            callback_data="feature_kaorios"
-        )])
+    buttons = []
+    for feature in get_feature_catalog_for_api(android_version):
+        state_key = feature["state_key"]
+        buttons.append([
+            InlineKeyboardButton(
+                f"{'✓' if features.get(state_key) else '☐'} {feature['button_label']}",
+                callback_data=feature["callback_data"],
+            )
+        ])
 
     buttons.append([InlineKeyboardButton("Continue with selected features", callback_data="features_done")])
 
@@ -165,15 +150,7 @@ async def features_done_handler(bot: Client, query: CallbackQuery):
         return
     
     # Build features summary
-    selected_features = []
-    if features["enable_signature_bypass"]:
-        selected_features.append("✓ Signature Verification Bypass")
-    if features["enable_cn_notification_fix"]:
-        selected_features.append("✓ CN Notification Fix")
-    if features["enable_disable_secure_flag"]:
-        selected_features.append("✓ Disable Secure Flag")
-    if features["enable_kaorios_toolbox"]:
-        selected_features.append("✓ Kaorios Toolbox (Play Integrity Fix)")
+    selected_features = get_selected_feature_labels(features)
     
     features_text = "\n".join(selected_features)
     
